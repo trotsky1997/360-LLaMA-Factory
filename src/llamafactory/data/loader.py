@@ -222,7 +222,7 @@ def _get_preprocessed_dataset(
     return dataset
 
 
-def _sequence_parallel_processed(
+def _get_sequence_parallel_dataset(
     dataset: Optional[Union["Dataset", "IterableDataset"]],
     data_args: "DataArguments",
     model_args: "ModelArugments",
@@ -297,11 +297,11 @@ def get_dataset(
         )
 
         if model_args.sequence_parallel_size > 1:
-            dataset = _sequence_parallel_processed(
+            dataset = _get_sequence_parallel_dataset(
                 dataset, data_args, model_args, training_args, tokenizer, is_eval=False
             )
             if eval_dataset is not None:
-                eval_dataset = _sequence_parallel_processed(
+                eval_dataset = _get_sequence_parallel_dataset(
                     eval_dataset, data_args, model_args, training_args, tokenizer, is_eval=True
                 )
 
