@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-import sys
 import functools
 from typing import TYPE_CHECKING, Dict, Literal, Optional, Sequence, Union
 
@@ -328,9 +327,7 @@ def get_dataset(
             if training_args.should_save:
                 dataset_dict.save_to_disk(data_args.tokenized_path)
                 logger.info_rank0(f"Tokenized dataset saved at {data_args.tokenized_path}.")
-                logger.info_rank0(f"Please restart the training with `tokenized_path: {data_args.tokenized_path}`.")
-
-            sys.exit(0)
+                logger.info_rank0(f"Please launch the training with `tokenized_path: {data_args.tokenized_path}`.")
 
         dataset_module = {}
         if "train" in dataset_dict:
