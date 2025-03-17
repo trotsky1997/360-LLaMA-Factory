@@ -114,7 +114,7 @@ class DataArguments:
         metadata={"help": "Strategy for packing"},
     )
     drop_exceed_length_data: Optional[bool] = field(
-        default=True,
+        default=False,
         metadata={"help": "drop exceed cutoff length data instead of truncate"},
     )
     shuffle_for_sequence_parallel: bool = field(
