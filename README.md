@@ -1,7 +1,7 @@
 ![# 360-LLaMA-Factory](assets/360lf-logo-zhinao.png)
 
 **Update Mar. 21:**
-We have added and tested DeepSpeed Ulysses, as planned in [ToDos](#todos). Correctness and speed is tested in [this section](#deepspeed-ulysses-correctness--speed), with similar speed on 7B 20k as zigzag ring. Ulysses integration is based on [yunchang](https://github.com/feifeibear/long-context-attention) for now
+We have added and tested DeepSpeed Ulysses, as planned in [ToDos](#todos). Correctness and speed is tested in [this section](#deepspeed-ulysses-correctness--speed), with similar speed on 7B 28k as zigzag ring. Ulysses integration is based on [yunchang](https://github.com/feifeibear/long-context-attention) for now
  but could be stripped with core functions adapted and source-acknowledged.
 
 **Using [LLaMA-Factory](https://github.com/hiyouga/LLaMA-Factory) with Sequence Parallelism can be as easy as...**
@@ -190,7 +190,7 @@ We compared SFT and DPO loss curves on the same data with and without Ulysses SP
 <img src="./assets/ds-sft.png" width="300" style="display: block; margin: 0 auto;"/>
 <img src="./assets/ds-dpo.png" width="300" style="display: block; margin: 0 auto;"/>
 
-We tested training speed of DeepSpeed Ulysses and zigzag ring on 7B models 20k sequence length,  and found they are almost identical with similar relative wall-time -- both around 15 minutes for 64 steps. We'll test more scenarios later.
+We tested training speed of DeepSpeed Ulysses and zigzag ring on 7B models 28k sequence length,  and found they are almost identical with similar relative wall-time -- both around 15 minutes for 64 steps. We'll test more scenarios later.
 
 <img src="./assets/speed.png" width="300" style="display: block; margin: 0 auto;"/>
 
