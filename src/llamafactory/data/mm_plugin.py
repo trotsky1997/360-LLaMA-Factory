@@ -511,6 +511,140 @@ class Gemma3Plugin(BasePlugin):
         mm_inputs["token_type_ids"] = _get_gemma3_token_type_ids(batch_ids, processor)
         return mm_inputs
 
+import math
+import numpy as np
+import cv2
+from PIL import Image
+from typing import List, Tuple
+
+
+class PatchEstimator:
+    def __init__(self, processor):
+        self.processor = processor
+        self.image_processor = getattr(processor, "image_processor")
+
+        # Patch 相关参数（与 InternVLPlugin 对齐）
+        self.tile_size = getattr(self.image_processor.size, "height", 448)
+        self.min_tiles = getattr(processor, "min_patches", 1)
+        self.max_tiles = getattr(processor, "max_patches", 12)
+        self.use_thumbnail = getattr(self.image_processor, "use_thumbnail", True)
+
+        # 视频参数
+        self.fps = getattr(processor, "video_fps", 2.0)
+        self.maxlen = getattr(processor, "video_maxlen", 128)
+
+        # 图像尺寸限制
+        self.image_max_pixels = getattr(processor, "image_max_pixels", 1024 * 1024)
+        self.image_min_pixels = getattr(processor, "image_min_pixels", 32 * 32)
+        self.video_max_pixels = getattr(processor, "video_max_pixels", 256 * 256)
+        self.video_min_pixels = getattr(processor, "video_min_pixels", 16 * 16)
+
+        # patch裁剪开关
+        self.crop_to_patches = getattr(processor, "crop_to_patches", False)
+
+    def get_image_size(self, path: str) -> Tuple[int, int]:
+        with Image.open(path) as img:
+            return img.size[::-1]  # (H, W)
+
+    def _regularize_image_sizes(self, image_sizes: List[Tuple[int, int]], min_pixels: int, max_pixels: int) -> List[Tuple[int, int]]:
+        new_sizes = []
+        for height, width in image_sizes:
+            pixels = width * height
+            if pixels > max_pixels:
+                scale = math.sqrt(max_pixels / pixels)
+                width, height = int(width * scale), int(height * scale)
+            elif pixels < min_pixels:
+                scale = math.sqrt(min_pixels / pixels)
+                width, height = int(width * scale), int(height * scale)
+            new_sizes.append((height, width))
+        return new_sizes
+
+    def get_video_info(self, path: str) -> Tuple[int, int, int]:
+        cap = cv2.VideoCapture(path)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        return height, width, frame_count
+
+    def get_number_tiles_based_on_image_size(
+        self,
+        size: Tuple[int, int],
+        min_tiles: int = None,
+        max_tiles: int = None,
+        use_thumbnail: bool = None,
+        tile_size: int = None,
+    ) -> int:
+        height, width = size
+        aspect_ratio = width / height
+
+        min_tiles = min_tiles if min_tiles is not None else self.min_tiles
+        max_tiles = max_tiles if max_tiles is not None else self.max_tiles
+        use_thumbnail = use_thumbnail if use_thumbnail is not None else self.use_thumbnail
+        tile_size = tile_size if tile_size is not None else self.tile_size
+
+        target_ratios = set(
+            (i, j)
+            for n in range(min_tiles, max_tiles + 1)
+            for i in range(1, n + 1)
+            for j in range(1, n + 1)
+            if min_tiles <= i * j <= max_tiles
+        )
+        target_ratios = sorted(target_ratios, key=lambda x: x[0] * x[1])
+
+        best_diff = float("inf")
+        best_ratio = (1, 1)
+        area = width * height
+
+        for w_ratio, h_ratio in target_ratios:
+            ratio = w_ratio / h_ratio
+            diff = abs(aspect_ratio - ratio)
+            if diff < best_diff:
+                best_diff = diff
+                best_ratio = (w_ratio, h_ratio)
+            elif diff == best_diff:
+                if area > 0.5 * tile_size**2 * w_ratio * h_ratio:
+                    best_ratio = (w_ratio, h_ratio)
+
+        num_tiles = best_ratio[0] * best_ratio[1]
+        if use_thumbnail and num_tiles != 1:
+            num_tiles += 1
+        return num_tiles
+
+    def estimate_image_num_patches(self, image_paths: List[str]) -> List[int]:
+        image_sizes = [self.get_image_size(p) for p in image_paths]
+        image_sizes = self._regularize_image_sizes(image_sizes, self.image_min_pixels, self.image_max_pixels)
+        return [self.get_number_tiles_based_on_image_size(size) for size in image_sizes]
+
+    def estimate_video_patch_info(self, video_paths: List[str]) -> Tuple[List[int], np.ndarray]:
+        video_num_frames = []
+        all_frame_sizes = []
+
+        for path in video_paths:
+            h, w, total_f = self.get_video_info(path)
+            f = min(total_f, int(self.fps * self.maxlen))
+            video_num_frames.append(f)
+            all_frame_sizes.extend([(h, w)] * f)
+
+        all_frame_sizes = self._regularize_image_sizes(all_frame_sizes, self.video_min_pixels, self.video_max_pixels)
+
+        video_num_patches = [
+            self.get_number_tiles_based_on_image_size(size)
+            for size in all_frame_sizes
+        ]
+        patch_indices = np.cumsum(video_num_frames)
+        return video_num_patches, patch_indices
+
+    def get_patch_metadata(self, image_paths: List[str], video_paths: List[str]) -> dict:
+        result = {}
+        if image_paths:
+            result["image_num_patches"] = self.estimate_image_num_patches(image_paths)
+        if video_paths:
+            vpatches, vpatch_indices = self.estimate_video_patch_info(video_paths)
+            result["video_num_patches"] = vpatches
+            result["video_patch_indices"] = vpatch_indices
+        return result
+
 
 @dataclass
 class InternVLPlugin(BasePlugin):
@@ -612,7 +746,12 @@ class InternVLPlugin(BasePlugin):
         num_image_tokens, num_video_tokens = 0, 0
         image_seqlen = getattr(processor, "image_seq_length") if self.expand_mm_tokens else 1
         messages = deepcopy(messages)
-        mm_inputs = self._get_mm_inputs(images, videos, audios, processor)
+        # mm_inputs = self._get_mm_inputs(images, videos, audios, processor)
+        estimator = PatchEstimator(processor)
+        if len(images) != 0 and (isinstance(images[0], str) or len(videos) != 0 and isinstance(videos[0], str)):
+            mm_inputs = estimator.get_patch_metadata(images, videos)
+        else:
+            mm_inputs = self._get_mm_inputs(images, videos, audios, processor)
 
         image_pixel_patch_list = mm_inputs.get("image_num_patches")  # pathes of images
         video_num_patches = mm_inputs.get("video_num_patches")  # all patches for frames of videos
