@@ -188,3 +188,68 @@ def read_cloud_json(cloud_path: str) -> list[Any]:
         raise ValueError(f"No JSON/JSONL files found in the specified path: {cloud_path}.")
 
     return sum([_read_json_with_fs(fs, file) for file in files], [])
+
+
+def setup_fs(path: str, anon: bool = False) -> "fsspec.AbstractFileSystem":
+    r"""Set up a filesystem object based on the path protocol."""
+    storage_options = {"anon": anon} if anon else {}
+    if path.startswith("s3://"):
+        fs = fsspec.filesystem("s3", **storage_options)
+    elif path.startswith(("gs://", "gcs://")):
+        fs = fsspec.filesystem("gcs", **storage_options)
+    else:
+        raise ValueError(f"Unsupported protocol in path: {path}. Use 's3://' or 'gs://'.")
+
+    if not fs.exists(path):
+        raise ValueError(f"Path does not exist: {path}.")
+
+    return fs
+
+
+def _read_json_with_fs(fs: "fsspec.AbstractFileSystem", path: str) -> list[Any]:
+    r"""Helper function to read JSON/JSONL files using fsspec."""
+    with fs.open(path, "r") as f:
+        if path.endswith(".jsonl"):
+            return [json.loads(line) for line in f if line.strip()]
+        else:
+            return json.load(f)
+
+
+def read_cloud_json(cloud_path: str) -> list[Any]:
+    r"""Read a JSON/JSONL file from cloud storage (S3 or GCS).
+
+    Args:
+        cloud_path: str
+            Cloud path in the format:
+            - 's3://bucket-name/file.json' for AWS S3
+            - 'gs://bucket-name/file.jsonl' or 'gcs://bucket-name/file.jsonl' for Google Cloud Storage
+    """
+    try:
+        fs = setup_fs(cloud_path, anon=True)  # try with anonymous access first
+    except Exception:
+        fs = setup_fs(cloud_path)  # try again with credentials
+
+    # filter out non-JSON files
+    files = [x["Key"] for x in fs.listdir(cloud_path)] if fs.isdir(cloud_path) else [cloud_path]
+    files = filter(lambda file: file.endswith(".json") or file.endswith(".jsonl"), files)
+    if not files:
+        raise ValueError(f"No JSON/JSONL files found in the specified path: {cloud_path}.")
+
+    return sum([_read_json_with_fs(fs, file) for file in files], [])
+
+
+# modified from https://github.com/jzhang38/EasyContext/
+def preprocess_sp_dataset(seq_ids, world_size, sequence_parallel_mode):
+    if sequence_parallel_mode == 'zigzag-ring':
+        step = len(seq_ids) // (2 * world_size)
+        value_chunks = [seq_ids[s : s + step] for s in range(0, len(seq_ids), step)]
+        local_values = list()
+        for rank in range(world_size):
+            local_values.append(value_chunks[rank] + value_chunks[2 * world_size - rank - 1])
+        return local_values
+    elif sequence_parallel_mode == "ulysses":
+        step = len(seq_ids) // world_size
+        local_values = [seq_ids[s : s + step] for s in range(0, len(seq_ids), step)]
+        return local_values
+    else:
+        raise NotImplementedError('Other sequence parallel modes are to be implemented.')
