@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from ...extras import logging
 from ...extras.constants import IGNORE_INDEX
-from .processor_utils import DatasetProcessor, greedy_knapsack, infer_seqlen
+from .processor_utils import DatasetProcessor, greedy_knapsack, infer_seqlen, random_knapsack
 
 
 if TYPE_CHECKING:
@@ -105,6 +105,10 @@ class SupervisedDatasetProcessor(DatasetProcessor):
                 videos=examples["_videos"][i] or [],
                 audios=examples["_audios"][i] or [],
             )
+            length = len(input_ids)
+            if data_args.drop_exceed_length_data and length >= data_args.cutoff_len:
+                logger.warning_rank0(f"Dropped lengthy example with length {length} > {data_args.cutoff_len}.")
+
             model_inputs["input_ids"].append(input_ids)
             model_inputs["attention_mask"].append([1] * len(input_ids))
             model_inputs["position_ids"].append(list(range(len(input_ids))))
@@ -150,7 +154,7 @@ class PackedSupervisedDatasetProcessor(SupervisedDatasetProcessor):
                 audios=examples["_audios"][i] or [],
             )
             length = len(input_ids)
-            if length > self.data_args.cutoff_len:
+            if data_args.drop_exceed_length_data and length >= data_args.cutoff_len - 1:
                 logger.warning_rank0(f"Dropped lengthy example with length {length} > {self.data_args.cutoff_len}.")
             else:
                 lengths.append(length)
@@ -163,7 +167,12 @@ class PackedSupervisedDatasetProcessor(SupervisedDatasetProcessor):
                 valid_num += 1
 
         model_inputs = defaultdict(list)
-        knapsacks = greedy_knapsack(lengths, self.data_args.cutoff_len)
+        if data_args.packing_method == "greedy":
+            knapsacks = greedy_knapsack(lengths, data_args.cutoff_len - 1)  # reserved for the padding token
+        elif data_args.packing_method == "random":
+            knapsacks = random_knapsack(lengths, data_args.cutoff_len - 1)  # reserved for the padding token
+        else:
+            raise ValueError(f"The pack method {data_args.pack_method} not supported!!")
         for knapsack in knapsacks:
             packed_input_ids, packed_attention_masks, packed_position_ids, packed_labels = [], [], [], []
             packed_images, packed_videos, packed_audios = [], [], []

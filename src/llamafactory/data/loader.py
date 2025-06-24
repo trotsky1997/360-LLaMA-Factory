@@ -367,6 +367,12 @@ def get_dataset(
             stage,
             return_dict=data_args.eval_on_each_dataset,
         )
+        if data_args.packing and data_args.packing_method == "random":
+            # shuffle origin dataset for random pack
+            if data_args.streaming:
+                dataset = dataset.shuffle(buffer_size=data_args.buffer_size, seed=training_args.seed)
+            else:
+                dataset = dataset.shuffle(seed=training_args.seed)
 
     with training_args.main_process_first(desc="pre-process dataset", local=(not data_args.data_shared_file_system)):
         dataset = _get_preprocessed_dataset(

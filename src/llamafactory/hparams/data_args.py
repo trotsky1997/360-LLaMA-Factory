@@ -117,6 +117,14 @@ class DataArguments:
         default=False,
         metadata={"help": "Enable sequence packing without cross-attention."},
     )
+    packing_method: Literal["greedy", "random"] = field(
+        default="greedy",
+        metadata={"help": "Strategy for packing"},
+    )
+    drop_exceed_length_data: Optional[bool] = field(
+        default=False,
+        metadata={"help": "drop exceed cutoff length data instead of truncate"},
+    )
     tool_format: Optional[str] = field(
         default=None,
         metadata={"help": "Tool format to use for constructing function calling examples."},

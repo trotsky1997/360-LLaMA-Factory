@@ -68,6 +68,28 @@ def search_for_fit(numbers: list[int], capacity: int) -> int:
     return -1 if index == 0 else (index - 1)
 
 
+def random_knapsack(numbers: List[int], capacity: int) -> List[List[int]]:
+    """
+    Randomly pack numbers into knapsacks such that the sum of numbers in each knapsack
+    does not exceed the specified capacity.
+    """
+    #random.shuffle(numbers)  skip shuffle because dataset is shuffled in get_dataset method
+    knapsacks = []
+
+    while numbers:
+        current_knapsack = []
+        remaining_capacity = capacity
+
+        for i in reversed(range(len(numbers))):
+            if numbers[i] <= remaining_capacity:
+                remaining_capacity -= numbers[i]
+                current_knapsack.append(numbers.pop(i))
+
+        knapsacks.append(current_knapsack)
+
+    return knapsacks
+    
+
 def greedy_knapsack(numbers: list[int], capacity: int) -> list[list[int]]:
     r"""Implement efficient greedy algorithm with binary search for the knapsack problem."""
     numbers.sort()  # sort numbers in ascending order for binary search
